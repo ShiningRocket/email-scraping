@@ -8,7 +8,9 @@ import threading
 
 import streamlit as st
 
+from arcade_games import render_arcade, render_external_game_links
 from company_intel import full_company_scrape
+from remote_intel_scraper import fetch_remote_intel
 from remote_insights import REMOTE_INSIGHTS_HTML
 from scraping_games import render_waiting_games
 
@@ -27,8 +29,53 @@ st.set_page_config(
 CUSTOM_CSS = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap');
-    html, body, [class*="css"] { font-family: 'DM Sans', system-ui, sans-serif; }
-    .block-container { padding-top: 1.25rem; max-width: 1000px; }
+    /* Do NOT use [class*="css"] — it matches Streamlit Emotion classes and breaks tab layout (clipped tabs). */
+    .stApp, .stApp p, .stApp label, .stApp input, .stApp textarea {
+        font-family: 'DM Sans', system-ui, sans-serif;
+    }
+    .block-container {
+        padding-top: 1.75rem;
+        padding-bottom: 3rem;
+        max-width: 1000px;
+    }
+    /* Main column must scroll — overflow:visible on stMain breaks scrolling and clips bottom content */
+    [data-testid="stMain"] {
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Tab bar: prevent labels being clipped (overflow / height issues) */
+    [data-testid="stTabs"] {
+        overflow: visible !important;
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+    }
+    [data-testid="stTabs"] > div {
+        overflow: visible !important;
+    }
+    [data-testid="stTabs"] [role="tablist"] {
+        overflow: visible !important;
+        min-height: 3rem !important;
+        align-items: stretch !important;
+        flex-wrap: wrap !important;
+        gap: 0.25rem !important;
+        padding-bottom: 0.25rem !important;
+    }
+    [data-testid="stTabs"] button[role="tab"],
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        min-height: 2.75rem !important;
+        padding: 0.65rem 1rem !important;
+        line-height: 1.35 !important;
+        white-space: nowrap !important;
+        overflow: visible !important;
+    }
+    /* First row inside stTabs = tab labels row */
+    [data-testid="stTabs"] > div:first-child {
+        min-height: 3.25rem !important;
+        overflow: visible !important;
+        align-items: center !important;
+    }
     .hero {
         background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #134e4a 100%);
         border-radius: 20px; padding: 2rem 2rem; margin-bottom: 1.25rem;
@@ -53,6 +100,100 @@ CUSTOM_CSS = """
         background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem;
     }
     .footer-note { color: #94a3b8; font-size: 0.78rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; }
+
+    /* Tab panels: scroll if needed + grow to full content (no flex clipping) */
+    [data-testid="stTabs"] {
+        flex: 0 1 auto !important;
+    }
+    [data-testid="stTabs"] [role="tabpanel"],
+    [data-testid="stTabs"] [data-baseweb="tab-panel"] {
+        padding-top: 2.25rem !important;
+        padding-bottom: 3rem !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        max-height: none !important;
+        height: auto !important;
+        min-height: min-content !important;
+    }
+    [data-testid="stTabs"] [role="tabpanel"] > div,
+    [data-testid="stTabs"] [data-baseweb="tab-panel"] > div {
+        padding-top: 0.35rem !important;
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    /* Remote jobs intel — always light card = readable in dark & light theme */
+    .remote-insights-panel {
+        background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+        color: #0f172a;
+        padding: 1.5rem 1.5rem 2rem 1.5rem;
+        border-radius: 18px;
+        border: 1px solid #cbd5e1;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+        margin: 0.25rem 0 1rem 0;
+        line-height: 1.65;
+    }
+    .remote-insights-title {
+        color: #020617 !important;
+        font-size: clamp(1.25rem, 2.5vw, 1.75rem);
+        font-weight: 800;
+        line-height: 1.35;
+        margin: 0 0 1.35rem 0 !important;
+        padding: 0.35rem 0 1rem 0 !important;
+        border-bottom: 3px solid #0284c7;
+        letter-spacing: -0.02em;
+    }
+    .remote-insights-h3 {
+        color: #0c4a6e !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+        margin: 1.35rem 0 0.65rem 0 !important;
+        padding: 0.5rem 0.75rem !important;
+        background: #e0f2fe !important;
+        border-radius: 10px;
+        border-left: 5px solid #0284c7;
+    }
+    .remote-insights-p,
+    .remote-insights-list li {
+        color: #1e293b !important;
+        font-size: 1rem;
+    }
+    .remote-insights-list {
+        color: #1e293b;
+        padding-left: 1.35rem;
+    }
+    .remote-insights-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+        margin-top: 0.5rem;
+        background: #fff;
+        border: 1px solid #94a3b8;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    .remote-insights-table th {
+        background: #0c4a6e !important;
+        color: #f8fafc !important;
+        padding: 12px 10px;
+        text-align: left;
+        font-weight: 700;
+    }
+    .remote-insights-table td {
+        padding: 10px;
+        border-bottom: 1px solid #cbd5e1;
+        color: #0f172a !important;
+        background: #f8fafc;
+    }
+    .remote-insights-table tr:last-child td { border-bottom: none; }
+    .remote-insights-table tr:nth-child(even) td { background: #fff; }
+    .remote-insights-foot {
+        font-size: 0.88rem;
+        color: #475569 !important;
+        margin-top: 1.25rem !important;
+        padding-top: 0.75rem;
+        border-top: 1px solid #cbd5e1;
+    }
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -138,7 +279,14 @@ def _render_scan_results(data: dict) -> None:
         st.info("No public emails found on scanned pages.")
 
 
-tab_scan, tab_intel, tab_games = st.tabs(["🏢 Scan company & news", "🌍 Remote jobs intel", "🎮 Game arcade"])
+# Spacer so tab labels sit below any header chrome (avoids top clipping)
+st.markdown(
+    '<div class="app-tabs-lead" style="height:16px;min-height:16px;" aria-hidden="true"></div>',
+    unsafe_allow_html=True,
+)
+tab_scan, tab_intel, tab_games = st.tabs(
+    ["🏢 Scan company & news", "🌍 Remote jobs intel", "🎮 Game arcade"]
+)
 
 with tab_scan:
     st.markdown(
@@ -216,10 +364,85 @@ with tab_scan:
     )
 
 with tab_intel:
-    st.markdown("## 🌍 Worldwide remote work — roles, future, strategy")
-    st.markdown(REMOTE_INSIGHTS_HTML, unsafe_allow_html=True)
+    st.markdown("### 🌍 Remote jobs intel — **live from the internet**")
+    st.caption(
+        "Data is pulled from public sources: **Remotive** API, **RemoteOK** API, "
+        "**Hacker News** (Algolia), **Reddit** r/remotework, **Google News** RSS. "
+        "Respect each site’s terms; use for research only."
+    )
+    if st.button("🔄 Refresh from internet", key="intel_refresh", type="primary"):
+        with st.spinner("Fetching latest remote-work signals…"):
+            st.session_state["intel_data"] = fetch_remote_intel()
+        st.rerun()
+    if "intel_data" not in st.session_state:
+        with st.spinner("Loading live snapshot (first visit)…"):
+            st.session_state["intel_data"] = fetch_remote_intel()
+
+    d = st.session_state["intel_data"]
+    st.success(f"**Snapshot time:** {d.get('fetched_at', '—')}")
+    errs = [e for e in (d.get("errors") or []) if e]
+    if errs:
+        with st.expander("Source status", expanded=False):
+            for e in errs:
+                st.caption(f"ℹ️ {e}")
+
+    has_live = bool(
+        d.get("categories") or d.get("tags") or d.get("hn_stories")
+        or d.get("reddit_posts") or d.get("news_headlines")
+    )
+    if not has_live:
+        st.warning("Live sources returned little or no data (network, rate limits, or blocks). Showing reference content below.")
+        st.markdown(REMOTE_INSIGHTS_HTML, unsafe_allow_html=True)
+    else:
+        if d.get("categories"):
+            st.subheader("📊 Job categories (live listing mix)")
+            st.caption("How many current **Remotive** remote jobs sit in each category (recent API snapshot).")
+            st.dataframe(
+                [{"Category": r["name"], "Listings": r["count"]} for r in d["categories"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+        if d.get("tags"):
+            st.subheader("🔥 Skills & tags (RemoteOK listings)")
+            st.dataframe(
+                [{"Tag / skill": r["name"], "Mentions": r["count"]} for r in d["tags"][:20]],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.subheader("💬 What the web is discussing")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Hacker News** — stories matching remote work / jobs")
+            for s in d.get("hn_stories") or []:
+                st.markdown(f"- [{s['title']}]({s['url']})")
+            if not d.get("hn_stories"):
+                st.caption("No stories returned.")
+        with c2:
+            st.markdown("**Reddit** r/remotework — hot posts")
+            for s in d.get("reddit_posts") or []:
+                st.markdown(f"- [{s['title']}]({s['url']})")
+            if not d.get("reddit_posts"):
+                st.caption("Reddit may rate-limit; try Refresh later.")
+
+        st.markdown("**News headlines** — Google News RSS (*remote jobs worldwide*)")
+        for s in d.get("news_headlines") or []:
+            st.markdown(f"- [{s['title']}]({s['url']})")
+        if not d.get("news_headlines"):
+            st.caption("No RSS items parsed.")
+
+        with st.expander("📌 Extra: reference strategy & role types (offline guide)", expanded=False):
+            st.markdown(REMOTE_INSIGHTS_HTML, unsafe_allow_html=True)
 
 with tab_games:
-    st.markdown("### 🎮 Play anytime — treasure hunt, quiz, rock-paper-scissors")
-    st.caption("Fun for all ages while you wait or take a break.")
-    render_waiting_games()
+    st.markdown("### 🎮 Arcade + more games online")
+    st.caption(
+        "**Snake** · **Fruit catch** · **Tap targets** — runs in your browser. "
+        "Below: links to big game sites (open in a new tab)."
+    )
+    render_arcade(height=520)
+    render_external_game_links()
+    st.markdown(
+        '<div class="page-bottom-spacer" style="min-height:100px;height:100px;width:100%;" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )

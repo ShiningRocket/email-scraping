@@ -7,7 +7,7 @@ Python + Streamlit. Enter a **company URL** for:
 - **News / blog links** — tries `/news`, `/blog`, `/press`, etc., and lists article-style links  
 
 While the scan runs, **mini-games** keep the wait fun (treasure dig, quiz, rock-paper-scissors).  
-A second tab has **worldwide remote job trends** (popular roles, future outlook, strategy).
+The **Remote jobs intel** tab **scrapes live data** from Remotive, RemoteOK, Hacker News, Reddit, and Google News RSS (plus an offline reference guide in an expander). **Games** include an embedded arcade (Snake, fruit catch, tap targets) and buttons to open Poki / CrazyGames / Coolmath in a new tab.
 
 ## Setup
 
