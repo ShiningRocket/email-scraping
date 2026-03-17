@@ -1,6 +1,13 @@
-# Email address discovery (company / careers / contact)
+# Company scanner — emails, company snapshot, news links + games
 
-Python app with a Streamlit UI. Enter a **company or job-site URL**; the tool fetches the homepage and common paths (`/contact`, `/careers`, `/jobs`, etc.) and follows same-domain links that look like contact or hiring pages.
+Python + Streamlit. Enter a **company URL** for:
+
+- **Emails** — contact / careers pages (same as before)  
+- **Company snapshot** — site title, meta description, text snippet from home/about  
+- **News / blog links** — tries `/news`, `/blog`, `/press`, etc., and lists article-style links  
+
+While the scan runs, **mini-games** keep the wait fun (treasure dig, quiz, rock-paper-scissors).  
+A second tab has **worldwide remote job trends** (popular roles, future outlook, strategy).
 
 ## Setup
 
@@ -17,15 +24,15 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Opens a browser UI. Paste a URL like `https://example.com` or `jobs.example.com`.
+Tabs: **Scan company & news** · **Remote jobs intel** · **Game arcade**
 
 ## What it finds
 
-- `mailto:` links  
-- Email-like text in HTML pages  
-- Prioritizes paths and contexts that suggest hiring / HR / careers  
+- `mailto:` links and visible emails on HTML pages  
+- Company name/tagline/snippet from public pages  
+- News-style links from index pages (not full article scraping)  
 
-It does **not** bypass logins, CAPTCHAs, or JavaScript-only content. Many job boards hide emails on purpose.
+It does **not** bypass logins, CAPTCHAs, or heavy JavaScript-only sites.
 
 ## Legal / ethical use
 

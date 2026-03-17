@@ -1,199 +1,225 @@
 """
-Streamlit UI — Company / hiring / contact email discovery.
+Streamlit UI — Company intel, news links, emails, remote-work insights, waiting games.
 """
+
+from __future__ import annotations
+
+import threading
 
 import streamlit as st
 
-from email_scraper import scrape_emails
+from company_intel import full_company_scrape
+from remote_insights import REMOTE_INSIGHTS_HTML
+from scraping_games import render_waiting_games
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+except ImportError:
+    st_autorefresh = None  # type: ignore
 
 st.set_page_config(
-    page_title="Email Finder",
-    page_icon="✉️",
+    page_title="Company & email scanner",
+    page_icon="🌐",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 CUSTOM_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
-
-    html, body, [class*="css"] {
-        font-family: 'DM Sans', system-ui, sans-serif;
-    }
-
-    .block-container {
-        padding-top: 2rem;
-        max-width: 920px;
-    }
-
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap');
+    html, body, [class*="css"] { font-family: 'DM Sans', system-ui, sans-serif; }
+    .block-container { padding-top: 1.25rem; max-width: 1000px; }
     .hero {
-        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 45%, #0c4a6e 100%);
-        border-radius: 20px;
-        padding: 2.5rem 2rem;
-        margin-bottom: 2rem;
-        box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.45);
+        background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #134e4a 100%);
+        border-radius: 20px; padding: 2rem 2rem; margin-bottom: 1.25rem;
+        box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.4);
         border: 1px solid rgba(255,255,255,0.08);
     }
-
-    .hero h1 {
-        color: #f8fafc !important;
-        font-weight: 700;
-        font-size: 2.1rem !important;
-        letter-spacing: -0.02em;
-        margin-bottom: 0.5rem !important;
-        border: none !important;
+    .hero h1 { color: #f8fafc !important; font-weight: 700; font-size: 1.85rem !important; margin-bottom: 0.35rem !important; border: none !important; }
+    .hero p { color: #94a3b8 !important; font-size: 1rem; margin: 0 !important; max-width: 560px; }
+    .stTextInput > div > div > input { border-radius: 12px !important; border: 1px solid #e2e8f0 !important; padding: 0.65rem 1rem !important; }
+    .stButton > button[kind="primary"] {
+        border-radius: 12px !important; font-weight: 600 !important;
+        background: linear-gradient(135deg, #0d9488, #0f766e) !important; color: white !important; border: none !important;
     }
-
-    .hero p {
-        color: #94a3b8 !important;
-        font-size: 1.05rem;
-        margin: 0 !important;
-        max-width: 520px;
-    }
-
-    .stTextInput > div > div > input {
-        border-radius: 12px !important;
-        border: 1px solid #e2e8f0 !important;
-        padding: 0.75rem 1rem !important;
-        font-size: 1rem !important;
-    }
-
-    div[data-testid="stVerticalBlock"] > div:has(> .stButton) {
-        margin-top: 0.5rem;
-    }
-
-    .stButton > button {
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 0.65rem 1.5rem !important;
-        background: linear-gradient(135deg, #0284c7, #0369a1) !important;
-        color: white !important;
-        border: none !important;
-        width: 100%;
-    }
-
-    .stButton > button:hover {
-        box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.45);
-    }
-
     .email-card {
-        background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid #e2e8f0;
-        border-radius: 16px;
-        padding: 1.25rem 1.5rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.06);
+        background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+        border: 1px solid #e2e8f0; border-radius: 14px; padding: 1rem 1.25rem; margin-bottom: 0.75rem;
     }
-
-    .email-addr {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 1.05rem;
-        font-weight: 500;
-        color: #0f172a;
-        word-break: break-all;
+    .email-addr { font-family: 'JetBrains Mono', monospace; font-size: 1rem; font-weight: 500; color: #0f172a; word-break: break-all; }
+    .meta { color: #64748b; font-size: 0.82rem; margin-top: 0.35rem; }
+    .badge { display: inline-block; background: #ccfbf1; color: #0f766e; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.72rem; font-weight: 600; margin-right: 0.25rem; }
+    .company-box {
+        background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 16px; padding: 1.25rem; margin-bottom: 1rem;
     }
-
-    .meta {
-        color: #64748b;
-        font-size: 0.875rem;
-        margin-top: 0.5rem;
-    }
-
-    .badge {
-        display: inline-block;
-        background: #e0f2fe;
-        color: #0369a1;
-        padding: 0.2rem 0.6rem;
-        border-radius: 8px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        margin-right: 0.35rem;
-    }
-
-    .footer-note {
-        color: #94a3b8;
-        font-size: 0.8rem;
-        margin-top: 2.5rem;
-        padding: 1rem;
-        border-top: 1px solid #e2e8f0;
-    }
+    .footer-note { color: #94a3b8; font-size: 0.78rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; }
 </style>
 """
-
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
-col_main, _ = st.columns([1, 0.02])
-with col_main:
+if "scrape_holder" not in st.session_state:
+    st.session_state.scrape_holder = None
+if "scrape_job_active" not in st.session_state:
+    st.session_state.scrape_job_active = False
+if "last_scan" not in st.session_state:
+    st.session_state.last_scan = None
+
+
+def _start_background_scrape(url: str, deep: bool) -> None:
+    holder: dict = {"done": False, "result": None, "err": None}
+
+    def work() -> None:
+        try:
+            holder["result"] = full_company_scrape(url.strip(), deep=deep)
+        except Exception as e:
+            holder["err"] = str(e)
+        holder["done"] = True
+
+    st.session_state.scrape_holder = holder
+    st.session_state.scrape_job_active = True
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+
+
+def _render_scan_results(data: dict) -> None:
+    if not data.get("ok"):
+        st.error(data.get("error") or "Scan failed.")
+        return
+
+    comp = data.get("company") or {}
+    name = comp.get("site_name") or data.get("base_url", "Company")
+    st.markdown(
+        f"""
+        <div class="company-box">
+            <h3 style="margin:0 0 0.5rem 0;color:#115e59;">🏢 {name}</h3>
+            <p style="margin:0;color:#475569;font-size:0.95rem;"><strong>Tagline / meta:</strong> {comp.get("tagline") or "—"}</p>
+            <p style="margin:0.75rem 0 0 0;color:#334155;font-size:0.9rem;line-height:1.5;">{comp.get("snippet") or "No long snippet from homepage/about (page may be script-heavy)."}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    news = data.get("news") or []
+    if news:
+        st.subheader("📰 Recent news & blog links")
+        for n in news[:15]:
+            st.markdown(f"- [{n['title']}]({n['url']})")
+        st.caption(f"Sourced from index pages on **{data.get('base_url')}** (titles as found on site).")
+
+    for w in data.get("warnings") or []:
+        if "No emails" in w or "No news" in w:
+            st.caption(f"ℹ️ {w}")
+        else:
+            st.caption(f"⚠️ {w}")
+
+    emails = data.get("emails") or []
+    if emails:
+        st.subheader("✉️ Emails")
+        st.success(f"**{len(emails)}** address(es)")
+        for r in emails:
+            rel = r["relevance"]
+            badge = ""
+            if rel >= 3:
+                badge = '<span class="badge">Hiring / careers</span>'
+            elif "mailto" in r["how"].lower():
+                badge = '<span class="badge">mailto</span>'
+            st.markdown(
+                f"""<div class="email-card"><div class="email-addr">{r["email"]}</div>{badge}
+                <div class="meta">📄 {r["found_on"]}<br>🔍 {r["how"]}</div></div>""",
+                unsafe_allow_html=True,
+            )
+        st.text_area(
+            "Copy all emails",
+            value="\n".join(r["email"] for r in emails),
+            height=min(140, 40 + len(emails) * 26),
+            label_visibility="collapsed",
+        )
+    else:
+        st.info("No public emails found on scanned pages.")
+
+
+tab_scan, tab_intel, tab_games = st.tabs(["🏢 Scan company & news", "🌍 Remote jobs intel", "🎮 Game arcade"])
+
+with tab_scan:
     st.markdown(
         """
         <div class="hero">
-            <h1>✉️ Email discovery</h1>
-            <p>Paste a company or job posting site URL. We scan contact, careers, and related pages for public emails.</p>
+            <h1>Company snapshot + current news + emails</h1>
+            <p>One scan: public emails, company description, and news/blog links. Play mini-games while the crawler works.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     url = st.text_input(
-        "Website URL",
-        placeholder="https://company.com or acme.io",
+        "Company or job site URL",
+        placeholder="https://company.com",
         label_visibility="collapsed",
-        key="url_input",
+        key="url_main",
     )
-
-    c1, c2 = st.columns([1, 0.35])
+    c1, c2, c3 = st.columns([1, 0.28, 0.32])
     with c1:
-        run = st.button("Find emails", type="primary", use_container_width=True)
+        go = st.button("🚀 Full scan (emails + company + news)", type="primary", use_container_width=True)
     with c2:
-        deep = st.checkbox("Deep scan", value=True, help="Follow more internal links (slower)")
-
-    if run:
-        if not url or not url.strip():
-            st.warning("Please enter a URL.")
+        deep = st.checkbox("Deep", value=True, help="More pages for emails")
+    with c3:
+        if st_autorefresh:
+            st.caption("Auto-refresh while scanning")
         else:
-            max_pages = 18 if deep else 8
-            with st.spinner("Scanning pages…"):
-                results, warnings = scrape_emails(url.strip(), max_pages=max_pages)
+            st.caption("pip install streamlit-autorefresh")
 
-            for w in warnings:
-                if "No emails" in w or "empty" in w.lower():
-                    st.info(w)
-                else:
-                    st.caption(f"⚠ {w}")
+    if go:
+        if not url or not url.strip():
+            st.warning("Enter a URL first.")
+        elif not st.session_state.scrape_job_active:
+            _start_background_scrape(url, deep)
+            st.rerun()
 
-            if results:
-                st.success(f"Found **{len(results)}** unique address(es)")
-                for r in results:
-                    rel = r["relevance"]
-                    badge = ""
-                    if rel >= 3:
-                        badge = '<span class="badge">Hiring / careers</span>'
-                    elif "mailto" in r["how"].lower():
-                        badge = '<span class="badge">mailto</span>'
-                    st.markdown(
-                        f"""
-                        <div class="email-card">
-                            <div class="email-addr">{r["email"]}</div>
-                            {badge}
-                            <div class="meta">📄 {r["found_on"]}<br>🔍 {r["how"]}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                st.subheader("Copy all")
-                st.text_area(
-                    "Emails (one per line)",
-                    value="\n".join(r["email"] for r in results),
-                    height=min(120, 36 + len(results) * 28),
-                    label_visibility="collapsed",
-                )
+    # Background job: poll + games
+    if st.session_state.scrape_job_active and st.session_state.scrape_holder:
+        h = st.session_state.scrape_holder
+        if not h.get("done"):
+            if st_autorefresh:
+                st_autorefresh(interval=1600, key="scrape_poll")
+            st.markdown("### ⏳ Scanning…")
+            st.progress(0.65, text="Fetching careers, contact, news, and blog pages — hang tight!")
+            render_waiting_games()
+            if not st_autorefresh:
+                if st.button("🔄 Check if finished"):
+                    st.rerun()
+            st.stop()
+        # Finished this run — show once, then persist in session for later visits
+        st.session_state.scrape_job_active = False
+        st.session_state.scrape_holder = None
+        if h.get("err"):
+            st.error(h["err"])
+            st.stop()
+        st.session_state.last_scan = h["result"]
+        st.balloons()
+        st.success("Scan complete — company, news links, and emails below.")
+        _render_scan_results(h["result"])
+        if st.button("Clear results", key="clear_fresh_scan"):
+            st.session_state.last_scan = None
+            st.rerun()
+        st.stop()
+
+    if st.session_state.last_scan and not st.session_state.scrape_job_active:
+        _render_scan_results(st.session_state.last_scan)
+        if st.button("Clear results"):
+            st.session_state.last_scan = None
+            st.rerun()
 
     st.markdown(
-        """
-        <div class="footer-note">
-        <strong>Responsible use:</strong> Only scrape sites you’re allowed to access. Respect robots.txt, terms of service, and privacy laws (GDPR, CAN-SPAM). 
-        Use findings for legitimate outreach only.
-        </div>
-        """,
+        '<div class="footer-note"><strong>Responsible use:</strong> Respect robots.txt, terms of service, and privacy laws. '
+        "News items are links found on the site’s public index pages, not guaranteed “latest” if the site loads via JavaScript only.</div>",
         unsafe_allow_html=True,
     )
+
+with tab_intel:
+    st.markdown("## 🌍 Worldwide remote work — roles, future, strategy")
+    st.markdown(REMOTE_INSIGHTS_HTML, unsafe_allow_html=True)
+
+with tab_games:
+    st.markdown("### 🎮 Play anytime — treasure hunt, quiz, rock-paper-scissors")
+    st.caption("Fun for all ages while you wait or take a break.")
+    render_waiting_games()
